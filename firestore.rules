@@ -1,0 +1,66 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ----------------------------------------------------------------
+    // users/{id} — guarda {name, role, pinHash}
+    // Modelo: confiança compartilhada entre os 8 coordenadores.
+    // Exige autenticação (o app faz sign-in anônimo automaticamente).
+    // ----------------------------------------------------------------
+    match /users/{userId} {
+      allow read: if request.auth != null;
+
+      // Criação permitida se ainda não existe o doc (primeiro login)
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly(['name','role','pinHash'])
+                    && request.resource.data.name is string
+                    && request.resource.data.role in ['tio','jovem']
+                    && request.resource.data.pinHash is string
+                    && request.resource.data.pinHash.size() == 64;
+
+      // Atualização (troca de PIN) — mantém o mesmo name e role
+      allow update: if request.auth != null
+                    && request.resource.data.name == resource.data.name
+                    && request.resource.data.role == resource.data.role
+                    && request.resource.data.pinHash is string
+                    && request.resource.data.pinHash.size() == 64;
+
+      allow delete: if false; // ninguém deleta usuário pela interface
+    }
+
+    // ----------------------------------------------------------------
+    // demandas/{id}
+    // ----------------------------------------------------------------
+    match /demandas/{demandaId} {
+      allow read: if request.auth != null;
+
+      // Criar demanda: usuário autenticado, campos básicos presentes
+      allow create: if request.auth != null
+                    && request.resource.data.titulo is string
+                    && request.resource.data.titulo.size() > 0
+                    && request.resource.data.titulo.size() <= 200
+                    && request.resource.data.criadoPorId is string
+                    && request.resource.data.criadoPorNome is string
+                    && request.resource.data.prazo is timestamp
+                    && request.resource.data.opcoes is list
+                    && request.resource.data.opcoes.size() >= 2
+                    && request.resource.data.opcoes.size() <= 12
+                    && request.resource.data.votos is map;
+
+      // Atualizar: qualquer usuário pode alterar o map de votos
+      // (para registrar seu voto). Edição de conteúdo também liberada
+      // — o cliente enforce que só o criador edite; o app confia nos 8.
+      allow update: if request.auth != null
+                    && request.resource.data.titulo is string
+                    && request.resource.data.titulo.size() > 0
+                    && request.resource.data.opcoes.size() >= 2;
+
+      // Deletar: só o próprio criador (validação no cliente reforçada aqui
+      // pelo fato de que não conseguimos amarrar Firebase Auth UID ao id
+      // do coordenador neste modelo simples — então liberamos para
+      // autenticados e o app controla o botão de exclusão).
+      allow delete: if request.auth != null;
+    }
+  }
+}
